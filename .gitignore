@@ -1,0 +1,9 @@
+# IntelliJ IDEA
+.idea/**
+*.iml
+*.iws
+*.ipr
+out/
+
+# Virtual environment
+.venv/
