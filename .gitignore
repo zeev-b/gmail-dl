@@ -7,3 +7,5 @@ out/
 
 # Virtual environment
 .venv/
+.aider*
+.env

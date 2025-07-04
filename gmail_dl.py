@@ -9,7 +9,7 @@ import argparse
 from email.header import decode_header
 import base64
 import re
-from typing import Tuple, List, Optional, Union
+from typing import List
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -51,24 +51,6 @@ def decode_mime_words(s: str) -> str:
         for word, encoding in decode_header(s)
     )
 
-def get_month_range(current_month: bool = False) -> Tuple[datetime, datetime]:
-    today = datetime.now()
-    first_day_of_current_month = today.replace(day=1)
-
-    if current_month:
-        last_day = (first_day_of_current_month + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-        return first_day_of_current_month, last_day
-
-    last_day_of_previous_month = first_day_of_current_month - timedelta(days=1)
-    first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
-    return first_day_of_previous_month, last_day_of_previous_month
-
-def get_year_range(current_year: bool = False) -> Tuple[datetime, datetime]:
-    year = datetime.now().year - (0 if current_year else 1)
-    return (
-        datetime(year, 1, 1),
-        datetime(year, 12, 31)
-    )
 
 def download_attachments(
         email_address: str,
@@ -76,14 +58,10 @@ def download_attachments(
         output_dir: str,
         label: str,
         from_: str,
-        month: bool = True,
-        year: bool = False,
-        current: bool = False,
+        year: int = None,
+        month: int = None,
         dry_run: bool = False
 ) -> None:
-
-    if month == year:
-        raise ValueError(f"Either month or year must be selected (but only one), month={month}, year={year}")
 
     imap_server = "imap.gmail.com"
     imap_port = 993
@@ -96,20 +74,22 @@ def download_attachments(
         list_labels(mail)
 
         # Select the mailbox (label) you want to search in
-        label_to_search = f'"{label}"'
-        logging.info(f"Selecting label: {label_to_search}")
-        status, messages = mail.select(label_to_search)
+        if label:
+            label_to_search = f'"{label}"'
+            logging.info(f"Selecting label: {label_to_search}")
+            status, messages = mail.select(label_to_search)
+        else:
+            logging.info("No label specified - searching all mail")
+            status, messages = mail.select('"[Gmail]/All Mail"')
+
 
         if status != "OK":
             logging.error(f"Error selecting label {label_to_search}. Please check if the label exists.")
             mail.logout()
             return
 
-        # Get date range for the previous or current month
-        if month:
-            start_date, end_date = get_month_range(current)
-        else:
-            start_date, end_date = get_year_range(current)
+        start_date = datetime(year, month, 1)
+        end_date = datetime(year, month + 1, 1) if month < 12 else datetime(year + 1, 1, 1)
 
         # Format dates for IMAP search
         since_date = start_date.strftime("%d-%b-%Y")
@@ -212,23 +192,38 @@ def list_labels(mail):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Download Gett receipt attachments from Gmail")
+    parser = argparse.ArgumentParser(description="Download attachments from Gmail")
+    parser.add_argument("--email", help="Email address")
     parser.add_argument("--dry-run", action="store_true", help="Run in dry mode without saving attachments")
     parser.add_argument("--label", default="Bills", help="Gmail label to search in (default: Bills)")
     parser.add_argument("--from", dest="from_", default="do-not-reply@gett.com",
                         help="Email address to filter by")
-    parser.add_argument("--month", action="store_true", help="True for one month range (default: False)")
-    parser.add_argument("--year", action="store_true", help="True for one year range (default: False)")
-    parser.add_argument("--current", action="store_true",
-                        help="True for current month/year range otherwise previous month/year range (default: False")
+    parser.add_argument("--year", type=int, help="Year to download from (default: current year)")
+    parser.add_argument("--month", type=int, choices=range(1,13), 
+                       help="Month to download from (1-12, default: current month)")
+    parser.add_argument("--output-dir", default=".", help="Output directory (default: current)")
     args = parser.parse_args()
-    email_address = input("Enter your Gmail address: ")
-    password = getpass("Enter your password: ")
-    output_dir = input("Enter the directory to save attachments: ")
-    if not args.dry_run and not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    download_attachments(email_address, password, output_dir, args.label, args.from_,
-                         month=args.month, year=args.year, current=args.current, dry_run=args.dry_run)
+
+    email_address = args.email
+    if not email_address:
+        email_address = input("Enter Gmail address: ")
+    password = getpass("Enter password: ")
+
+    if not args.dry_run and not os.path.exists(args.output_dir):
+        #os.makedirs(args.output_dir)
+        logging.error(f"{args.output_dir} doesn't exist")
+        exit(1)
+
+    download_attachments(
+        email_address,
+        password,
+        args.output_dir,
+        args.label,
+        args.from_,
+        year=args.year if args.year is not None else datetime.now().year,
+        month=args.month if args.month is not None else datetime.now().month,
+        dry_run=args.dry_run
+    )
     logging.info("\nAttachment download completed.")
 
 
