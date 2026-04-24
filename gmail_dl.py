@@ -133,8 +133,38 @@ def download_attachments(
         mail.logout()
 
 
-
 def save_email_attachments(email_message, output_dir, dry_run, duplicate_count):
+    attachments_found = False
+    for part in email_message.walk():
+        if part.get_content_maintype() == "multipart":
+            continue
+
+        # This is the key change:
+        # get_filename() is a built-in helper that checks BOTH:
+        # 1. Content-Disposition filename parameter (Works for Gett)
+        # 2. Content-Type name parameter (Works for Shufersal)
+        filename = part.get_filename()
+
+        if filename:
+            filename = decode_mime_words(filename)
+            filepath = output_filepath(filename, output_dir)
+
+            if dry_run:
+                logging.info(f"Would download: {filename} and save to {filepath}")
+            else:
+                try:
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        with open(filepath, "wb") as f:
+                            f.write(payload)
+                        logging.info(f"Downloaded: {filename} and saved to {filepath}")
+                        attachments_found = True
+                except Exception as e:
+                    logging.error(f"Error saving attachment {filename}: {str(e)}")
+
+    return attachments_found
+
+def old_save_email_attachments(email_message, output_dir, dry_run, duplicate_count):
     attachments_found = False
     for part in email_message.walk():
         # email_message(multipart / mixed)
@@ -195,7 +225,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Download attachments from Gmail")
     parser.add_argument("--email", help="Email address")
     parser.add_argument("--dry-run", action="store_true", help="Run in dry mode without saving attachments")
-    parser.add_argument("--label", default="Bills", help="Gmail label to search in (default: Bills)")
+    parser.add_argument("--label", help="Gmail label to search in (default: Bills)")
     parser.add_argument("--from", dest="from_", default="do-not-reply@gett.com",
                         help="Email address to filter by")
     parser.add_argument("--year", type=int, help="Year to download from (default: current year)")
